@@ -1,0 +1,195 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Subject {
+  id        Int      @id @default(autoincrement())
+  name      String
+  grade     Int? // 1-8 for sınıf (opsiyonel)
+  unit      String? // ünite
+  topic     String? // konu
+  outcome   String? // kazanım
+  createdAt DateTime @default(now())
+
+  templates PromptTemplate[]
+  images    GeneratedImage[]
+  exams     Exam[]
+
+  @@map("subjects")
+}
+
+model GeneratedImage {
+  id        Int      @id @default(autoincrement())
+  prompt    String
+  filePath  String
+  status    String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  metadata  String? // JSON string for additional data
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subjectId Int?
+  subject   Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@map("generated_images")
+}
+
+model PromptTemplate {
+  id           Int      @id @default(autoincrement())
+  templateText String
+  variables    String? // JSON array of variable names like ["sınıf", "konu", "kazanım"]
+  description  String?
+  createdAt    DateTime @default(now())
+
+  subjectId Int?
+  subject   Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@map("prompt_templates")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String // Hashed password
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Classroom relation (Student can be in only ONE classroom)
+  classroomId Int?
+  classroom   Classroom? @relation("ClassroomStudents", fields: [classroomId], references: [id], onDelete: SetNull)
+
+  roles             UserRole[]
+  createdExams      Exam[]     @relation("ExamCreator")
+  assignedHomeworks Homework[] @relation("HomeworkTeacher")
+  receivedHomeworks Homework[] @relation("HomeworkStudent")
+
+  // Classrooms created by teacher
+  ownedClassrooms Classroom[] @relation("ClassroomTeacher")
+
+  // Announcements created by user
+  announcements Announcement[]
+
+  @@map("users")
+}
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique // ADMIN, TEACHER, STUDENT
+  description String?
+
+  users UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id     Int @id @default(autoincrement())
+  userId Int
+  roleId Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// Exam model for AI-generated exams
+model Exam {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  grade       Int // 1-8
+  subjectName String // Matematik, Fen Bilimleri, etc.
+  topic       String? // Specific topic
+  questions   String // JSON array of questions
+  totalPoints Int      @default(100)
+  duration    Int? // Duration in minutes
+  difficulty  String   @default("MEDIUM") // EASY, MEDIUM, HARD
+  status      String   @default("DRAFT") // DRAFT, PUBLISHED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdById Int
+  createdBy   User @relation("ExamCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  subjectId Int?
+  subject   Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  homeworks Homework[]
+
+  @@map("exams")
+}
+
+// Homework model (junction between Exam and Student)
+model Homework {
+  id             Int       @id @default(autoincrement())
+  status         String    @default("ASSIGNED") // ASSIGNED, SUBMITTED, GRADED
+  dueDate        DateTime?
+  studentAnswers String? // JSON array of student answers
+  score          Int? // Total score achieved
+  feedback       String? // Teacher feedback
+  submittedAt    DateTime?
+  gradedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  examId Int
+  exam   Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  studentId Int
+  student   User @relation("HomeworkStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  teacherId Int
+  teacher   User @relation("HomeworkTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, studentId])
+  @@map("homeworks")
+}
+
+// Classroom model for virtual classrooms
+model Classroom {
+  id          Int      @id @default(autoincrement())
+  name        String // e.g., "1-A", "3-B"
+  grade       Int // 1-8
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Teacher who owns this classroom
+  teacherId Int
+  teacher   User @relation("ClassroomTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  // Students in this classroom
+  students User[] @relation("ClassroomStudents")
+
+  // Announcements for this classroom
+  announcements Announcement[]
+
+  @@map("classrooms")
+}
+
+// Announcement model for classroom announcements
+model Announcement {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+
+  // Classroom this announcement belongs to
+  classroomId Int
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+
+  // User who created this announcement
+  createdById Int
+  createdBy   User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@map("announcements")
+}
